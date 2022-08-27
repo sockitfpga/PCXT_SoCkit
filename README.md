@@ -1,3 +1,9 @@
+# [IBM PC/XT](https://en.wikipedia.org/wiki/IBM_Personal_Computer_XT) for [SoCkit (MiSTer) Platform](https://github.com/sockitfpga/MiSTer_SoCkit) 
+
+Port to SoCkit by Somhic from original MiSTer port currently in development https://github.com/MiSTer-devel/PCXT_MiSTer
+
+Follows original readme.
+
 # [IBM PC/XT](https://en.wikipedia.org/wiki/IBM_Personal_Computer_XT) for [MiSTer FPGA](https://mister-devel.github.io/MkDocs_MiSTer/)
 
 PCXT port for MiSTer by [@spark2k06](https://github.com/spark2k06/).
