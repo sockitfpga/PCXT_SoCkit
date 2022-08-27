@@ -2,6 +2,8 @@
 
 Port to SoCkit by Somhic from original MiSTer port currently in development https://github.com/MiSTer-devel/PCXT_MiSTer
 
+The selection of the FDD/HDD images from OSD requires to update the framework to  the latest version ([MiSTer file](https://github.com/MiSTer-devel/Main_MiSTer/tree/master/releases)).  Remember also to select 460800 baud speed.
+
 Follows original readme.
 
 # [IBM PC/XT](https://en.wikipedia.org/wiki/IBM_Personal_Computer_XT) for [MiSTer FPGA](https://mister-devel.github.io/MkDocs_MiSTer/)
