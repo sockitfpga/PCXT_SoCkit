@@ -1,7 +1,7 @@
-db
+db/
 greybox_tmp
-incremental_db
-output_files
+incremental_db/
+output_files/
 simulation
 hc_output
 scaler
@@ -38,3 +38,5 @@ c5_pin_model_dump.txt
 *_netlist
 *.cdf
 **/.DS_Store
+jtag.cdf
+upd.sh
