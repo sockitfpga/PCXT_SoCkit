@@ -812,12 +812,12 @@ end
 
 	video_monochrome_converter video_mono 
 	(
-		.clk_vid(CLK_VIDEO),
+		.clk_vid(clk_113_750),
 		.ce_pix(ce_pixel),
 		
-		.R({r, 2'b0}),
-		.G({g, 2'b0}),
-		.B({b, 2'b0}),
+		.R({r, 2'b00}),
+		.G({g, 2'b00}),
+		.B({b, 2'b00}),
 
 		.gfx_mode(screen_mode),
 		
