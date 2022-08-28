@@ -359,6 +359,7 @@ wire pll_locked;
 wire clk_100;
 wire clk_28_636;
 wire clk_56_875;
+wire clk_113_750;
 reg clk_14_318 = 1'b0;
 reg clk_7_16 = 1'b0;
 wire clk_4_77;
@@ -378,6 +379,7 @@ pll pll
 	.outclk_3(clk_uart),
 	.outclk_4(clk_opl2),
 	.outclk_5(clk_chipset),
+	.outclk_6(clk_113_750),
 	.locked(pll_locked)
 );
 
@@ -394,6 +396,10 @@ wire ce_pixel;
 
 assign CLK_VIDEO = clk_56_875;
 
+//assign ce_pixel = mda_mode ? clk_14_318 : clk_14_318; // MDA needs rework, but displays at half res
+assign ce_pixel = clk_28_636; 
+
+
 reg         cen_44100;
 reg  [31:0] cen_44100_cnt;
 wire [31:0] cen_44100_cnt_next = cen_44100_cnt + 32'd44100;
@@ -408,7 +414,6 @@ end
 
 always @(posedge clk_28_636) begin
 	clk_14_318 <= ~clk_14_318; // 14.318Mhz
-	ce_pixel <= mda_mode ? clk_14_318 : clk_14_318; // MDA needs rework, but displays at half res
 end
 
 always @(posedge clk_14_318) begin
@@ -839,7 +844,7 @@ end
 	(
 		.*,
 		
-		.CLK_VIDEO(CLK_VIDEO),
+		.CLK_VIDEO(clk_113_750),
 		.ce_pix(ce_pixel),
 
 		.freeze_sync(),
