@@ -394,7 +394,6 @@ wire VSync;
 wire ce_pixel;
 //wire [7:0] video;
 
-
 assign CLK_VIDEO = clk_56_875;
 
 wire CLK_VIDEO_MDA;
@@ -402,8 +401,7 @@ wire CLK_VIDEO_CGA;
 assign CLK_VIDEO_MDA = clk_113_750;
 assign CLK_VIDEO_CGA = clk_56_875;
 
-assign ce_pixel = mda_mode ? clk_28_636 : clk_14_318; // MDA needs rework, but displays at half res
-//assign ce_pixel = clk_28_636; 
+//assign ce_pixel = mda_mode ? clk_28_636 : clk_14_318;
 
 
 reg         cen_44100;
@@ -420,6 +418,7 @@ end
 
 always @(posedge clk_28_636) begin
 	clk_14_318 <= ~clk_14_318; // 14.318Mhz
+	ce_pixel <= mda_mode ? clk_28_636 : clk_14_318;
 end
 
 always @(posedge clk_14_318) begin
