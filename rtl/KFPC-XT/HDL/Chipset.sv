@@ -58,6 +58,7 @@ module CHIPSET (
     output  logic           memory_write_n,
     input   logic           memory_write_n_ext,
     output  logic           memory_write_n_direction,
+    input   logic           ext_access_request,
     input   logic   [3:0]   dma_request,
     output  logic   [3:0]   dma_acknowledge_n,
     output  logic           address_enable_n,
@@ -82,24 +83,15 @@ module CHIPSET (
 	 input   logic   [31:0]  joy1,
 	 input   logic   [15:0]  joya0,
 	 input   logic   [15:0]  joya1,
-	 
-	 // SOUND
-	 input   logic           clk_en_44100, // COVOX/DSS clock enable
-	 input   logic           dss_covox_en,
-	 output  logic   [15:0]  lclamp,
-	 output  logic   [15:0]  rclamp,
 	 // JTOPL	 
 	 input   logic           clk_en_opl2,
+	 output  logic   [15:0]  jtopl2_snd_e,
 	 input   logic           adlibhide,
 	 // TANDY
 	 input   logic           tandy_video,
+	 input   logic           tandy_bios_flag,
+	 output  logic   [7:0]   tandy_snd_e,
 	 output  logic           tandy_16_gfx,
-	 // IOCTL
-    input   logic           ioctl_download,
-    input   logic   [7:0]   ioctl_index,
-    input   logic           ioctl_wr,
-    input   logic   [24:0]  ioctl_addr,
-    input   logic   [7:0]   ioctl_data,
 	 // UART
 	 input   logic           clk_uart,
 	 input   logic           uart_rx,
@@ -111,6 +103,7 @@ module CHIPSET (
 	 output  logic           uart_dtr_n,
     // SDRAM
     input   logic           enable_sdram,
+    output  logic           initilized_sdram,
     input   logic           sdram_clock,    // 50MHz
     output  logic   [12:0]  sdram_address,
     output  logic           sdram_cke,
@@ -126,7 +119,19 @@ module CHIPSET (
     output  logic           sdram_udqm,
 	 // EMS
 	 input   logic           ems_enabled,
-	 input   logic   [1:0]   ems_address
+	 input   logic   [1:0]   ems_address,
+	 // BIOS
+	 input  logic            bios_protect_flag,
+	 input   logic   [2:0]   bios_writable,
+    // FDD
+    input   logic   [15:0]  mgmt_address,
+    input   logic           mgmt_read,
+    output  logic   [15:0]  mgmt_readdata,
+    input   logic           mgmt_write,
+    input   logic   [15:0]  mgmt_writedata,
+    input   logic   [27:0]  clock_rate,
+    input   logic   [1:0]   floppy_wp,
+    output  logic   [1:0]   fdd_request
 );
 
     logic           dma_ready;
@@ -154,6 +159,8 @@ module CHIPSET (
     logic           ems_b3;
     logic           ems_b4;
     logic           tandy_snd_rdy;
+    logic           fdd_dma_req;
+
 
    always_ff @(posedge clock) begin
        if (reset)
@@ -222,7 +229,8 @@ module CHIPSET (
         .memory_write_n_ext                 (memory_write_n_ext),
         .memory_write_n_direction           (memory_write_n_direction),
         .no_command_state                   (no_command_state),
-        .dma_request                        ({dma_request[3:1], DRQ0}),
+        .ext_access_request                 (ext_access_request),
+        .dma_request                        ({dma_request[3], fdd_dma_req, dma_request[1], DRQ0}),
         .dma_acknowledge_n                  (dma_acknowledge_n),
         .address_enable_n                   (address_enable_n),
         .terminal_count_n                   (terminal_count_n)
@@ -231,6 +239,7 @@ module CHIPSET (
     PERIPHERALS u_PERIPHERALS (
         .clock                              (clock),
 		  .clk_sys                            (clk_sys),
+        .cpu_clock                          (cpu_clock),
 		  .clk_uart                           (clk_uart),
         .peripheral_clock                   (peripheral_clock),
 		  .turbo_mode                         (turbo_mode),
@@ -283,20 +292,13 @@ module CHIPSET (
         .joya1                              (joya1),
         .ps2_clock_out                      (ps2_clock_out),
         .ps2_data_out                       (ps2_data_out),
-		  .clk_en_44100                       (clk_en_44100),
-		  .dss_covox_en                       (dss_covox_en),
-		  .lclamp                             (lclamp),
-		  .rclamp                             (rclamp),
 		  .clk_en_opl2                        (clk_en_opl2),
+		  .jtopl2_snd_e                       (jtopl2_snd_e),
 		  .adlibhide                          (adlibhide),
 		  .tandy_video                        (tandy_video),
+		  .tandy_snd_e                        (tandy_snd_e),
 		  .tandy_snd_rdy                      (tandy_snd_rdy),
 		  .tandy_16_gfx                       (tandy_16_gfx),
-		  .ioctl_download                     (ioctl_download),
-		  .ioctl_index                        (ioctl_index),
-		  .ioctl_wr                           (ioctl_wr),
-		  .ioctl_addr                         (ioctl_addr),
-		  .ioctl_data                         (ioctl_data),
 	     .uart_rx                           (uart_rx),
 	     .uart_tx                           (uart_tx),
 	     .uart_cts_n                        (uart_cts_n),
@@ -311,13 +313,26 @@ module CHIPSET (
 	     .ems_b1                            (ems_b1),
 	     .ems_b2                            (ems_b2),
 	     .ems_b3                            (ems_b3),
-	     .ems_b4                            (ems_b4)
+	     .ems_b4                            (ems_b4),
+	     .bios_writable                       (bios_writable),
+        .mgmt_address                       (mgmt_address),
+        .mgmt_read                          (mgmt_read),
+        .mgmt_readdata                      (mgmt_readdata),
+        .mgmt_write                         (mgmt_write),
+        .mgmt_writedata                     (mgmt_writedata),
+        .clock_rate                         (clock_rate),
+        .floppy_wp                          (floppy_wp),
+        .fdd_request                        (fdd_request),
+        .fdd_dma_req                        (fdd_dma_req),
+        .fdd_dma_ack                        (~dma_acknowledge_n[2]),
+        .terminal_count                     (terminal_count_n)
     );
 
     RAM u_RAM (
         .clock                              (sdram_clock),
         .reset                              (sdram_reset),
         .enable_sdram                       (enable_sdram),
+        .initilized_sdram                   (initilized_sdram),
         .address                            (address),
         .internal_data_bus                  (internal_data_bus),
         .data_bus_out                       (internal_data_bus_ram),
@@ -342,7 +357,9 @@ module CHIPSET (
 	     .ems_b1                             (ems_b1),
 	     .ems_b2                             (ems_b2),
 	     .ems_b3                             (ems_b3),
-	     .ems_b4                             (ems_b4)
+	     .ems_b4                             (ems_b4),
+        .tandy_bios_flag                    (tandy_bios_flag),
+        .bios_protect_flag                  (bios_protect_flag)
     );
 
     assign  data_bus = internal_data_bus;

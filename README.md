@@ -1,11 +1,3 @@
-# [IBM PC/XT](https://en.wikipedia.org/wiki/IBM_Personal_Computer_XT) for [SoCkit (MiSTer) Platform](https://github.com/sockitfpga/MiSTer_SoCkit) 
-
-Port to SoCkit by Somhic from original MiSTer port currently in development https://github.com/MiSTer-devel/PCXT_MiSTer
-
-The selection of the FDD/HDD images from OSD requires to update the framework to  the latest version ([MiSTer file](https://github.com/MiSTer-devel/Main_MiSTer/tree/master/releases)).  Remember also to select 460800 baud speed.
-
-Follows original readme.
-
 # [IBM PC/XT](https://en.wikipedia.org/wiki/IBM_Personal_Computer_XT) for [MiSTer FPGA](https://mister-devel.github.io/MkDocs_MiSTer/)
 
 PCXT port for MiSTer by [@spark2k06](https://github.com/spark2k06/).
@@ -24,6 +16,19 @@ The [Graphics Gremlin project](https://github.com/schlae/graphics-gremlin) from 
 
 An SN76489AN Compatible Implementation (Tandy Sound) written in VHDL was also integrated - Copyright (c) 2005, 2006, [Arnim Laeuger](https://github.com/devsaurus) (arnim.laeuger@gmx.net)
 
+## Key features
+
+* CPU Speed 4.77 MHz and turbo modes 7.16 MHz / 14.318 MHz
+* BIOS selectable (Tandy 1000 / PCXT)
+* Support for IBM Tandy 1000
+* Support for IBM PCXT 5160 and clones (CGA graphics)
+* Main memory 640Kb + 384Kb UMB memory
+* Simultaneous video MDA
+* EMS memory up to 2Mb
+* Tandy 320x200x16 graphics with 128Kb of shared RAM + CGA graphics
+* Audio: Adlib, Tandy, speaker
+* Joystick support
+
 ## ROM Instructions
 
 ROMs should be provided initially from the BIOS section of the OSD menu, then it is only necessary to indicate the computer model and reset, on subsequent boot of the core, it is no longer necessary to provide them, unless we want to use others. Original and copyrighted ROMs can be generated on the fly using the python scripts available in the SW folder of this repository:
@@ -40,25 +45,31 @@ Other Open Source ROMs are available in the same folder:
 * `pcxt_micro8088.rom`: This ROM already has the XTIDE BIOS embedded at address F000h. ([Source Code](https://github.com/skiselev/8088_bios))
 * `ide_xtl.rom`: This ROM corresponds to the XTIDE BIOS, it must be maintained for some scripts to work, it can also be upgraded to a newer version. ([Source Code](https://www.xtideuniversalbios.org/))
 
-## Mounting the disk image
+## Mounting the FDD image
 
-Initially, and until an 8-bit IDE module compatible with XTIDE is available, floppy and hdd mounting will be done through the serial port available in the core via the OSD menu. The available transfer speeds are as follows:
+The floppy disk image size must be compatible with the BIOS, for example:
+
+* On IBM 5160 or Tandy 1000 only 360Kb images work well. And currently only 4.77MHz and 7.16MHz work well.
+* On Micro8088 only 720Kb and 1.44Mb images work properly, at any CPU speed.
+
+It is possible to use images smaller than the size supported by the BIOS, but only pre-formatted images, as it will not be possible to format them from MS-Dos.
+
+## Mounting the HDD image
+
+Initially, and until an 8-bit IDE module compatible with XTIDE is available, HDD mounting will be done through the serial port available in the core via the OSD menu. The available transfer speeds are as follows:
 
 * 115200 Kbps
 * 230400 Kbps
 * 460800 Kbps
-* 921600 Kbps
+* 921600 Kbps (Only works with CPU speed at 14.318MHz)
 
-By default it is set to 115200, but this speed does not work, as XTIDE does not identify it... The most suitable speed is 460800, although 921600 is possible to use only with the CPU speed at 14.318MHz.
+By default it is set to 115200, but the most suitable speed is 460800. It is also possible to use 921600, but only with the CPU speed at 14.318MHz.
 
-The FDD image is recognised by XTIDE as B:, so to boot from floppy disk when booting, the 'B' key must be pressed when the XTIDE boot screen appears.
+The serial port speed change becomes effective after a BIOS reset, it is not possible to use the HDD drive after a speed change, the BIOS must always be reset after that.
 
 ## To-do list and challenges
 
-* Refactor Graphics Gremlin module, the new KFPC-XT system will make this refactor possible.
 * 8-bit IDE module implementation
-* Floppy implementation
-* Addition of other modules
 
 ## Developers
 
