@@ -12,9 +12,9 @@ The purpose of this core is to implement a PCXT as reliable as possible. For thi
 
 The [Graphics Gremlin project](https://github.com/schlae/graphics-gremlin) from TubeTimeUS ([@schlae](https://github.com/schlae)) has also been integrated in this first stage.
 
-[JTOPL](https://github.com/jotego/jtopl) by Jose Tejada (@topapate) was integrated for AdLib sound.
+[JTOPL](https://github.com/jotego/jtopl) by Jose Tejada (@jotego) was integrated for AdLib sound.
 
-An SN76489AN Compatible Implementation (Tandy Sound) written in VHDL was also integrated - Copyright (c) 2005, 2006, [Arnim Laeuger](https://github.com/devsaurus) (arnim.laeuger@gmx.net)
+[JT89](https://github.com/jotego/jt89) by Jose Tejada (@jotego) was integrated for Tandy sound.
 
 ## Key features
 
@@ -28,6 +28,19 @@ An SN76489AN Compatible Implementation (Tandy Sound) written in VHDL was also in
 * Tandy 320x200x16 graphics with 128Kb of shared RAM + CGA graphics
 * Audio: Adlib, Tandy, speaker
 * Joystick support
+* Mouse support into COM2 serial port, this works like any Microsoft mouse... you just need a driver to configure it, like CTMOUSE 1.9 (available into hdd folder), with the command CTMOUSE /s2 
+
+## Quick Start
+
+* Copy the contents of games/PCTXT to your Mister SD Card and uncompress hd_image.zip. It contains a freedos image ( http://www.freedos.org/ )
+* Select the core from Computers/PCXT.
+* Press WinKey + F12 on your keyboard.
+*  Model: IBM PCXT.
+*  CPU Speed: 14.318MHz.
+*  FDD & HDD -> HDD Image: FreeDOS_HD.img
+*  FDD & HDD -> Speed: 921600. NOTE: This speed can only be selected if CPU speed is 14.318 MHz.
+*  BIOS -> PCXT BIOS: pcxt_micro8088.rom
+* Choose Reset & apply model.
 
 ## ROM Instructions
 
@@ -45,12 +58,15 @@ Other Open Source ROMs are available in the same folder:
 * `pcxt_micro8088.rom`: This ROM already has the XTIDE BIOS embedded at address F000h. ([Source Code](https://github.com/skiselev/8088_bios))
 * `ide_xtl.rom`: This ROM corresponds to the XTIDE BIOS, it must be maintained for some scripts to work, it can also be upgraded to a newer version. ([Source Code](https://www.xtideuniversalbios.org/))
 
+Note: Not all ROMs work with MDA video: (IBM5160, Yuko ST and pcxt31 works), (Tandy, micro8088, full XTIDE BIOS do not work).
+
 ## Mounting the FDD image
 
 The floppy disk image size must be compatible with the BIOS, for example:
 
-* On IBM 5160 or Tandy 1000 only 360Kb images work well. And currently only 4.77MHz and 7.16MHz work well.
-* On Micro8088 only 720Kb and 1.44Mb images work properly, at any CPU speed.
+* On IBM 5160 or Tandy 1000 only 360Kb images work well.
+* On Micro8088 only 720Kb and 1.44Mb images work properly.
+* Other BIOS may not be compatible, such as OpenXT by Ja'akov Miles and Jon Petroski.
 
 It is possible to use images smaller than the size supported by the BIOS, but only pre-formatted images, as it will not be possible to format them from MS-Dos.
 
