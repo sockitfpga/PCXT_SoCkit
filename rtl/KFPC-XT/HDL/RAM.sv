@@ -1,6 +1,8 @@
 //
-// KFPC-XT Peripherals
-// Written by kitune-san
+// MiSTer PCXT RAM
+// Ported by @spark2k06
+//
+// Based on KFPC-XT written by @kitune-san
 //
 module RAM (
     input   logic           clock,
@@ -36,8 +38,14 @@ module RAM (
      input   logic           ems_b3,
      input   logic           ems_b4,
      // BIOS
-     input  logic           bios_protect_flag,
-     input  logic           tandy_bios_flag
+     input  logic    [1:0]  bios_protect_flag,
+     input  logic           tandy_bios_flag,
+    // Optional flags
+    input  logic           enable_a000h,
+    // Wait mode
+    input   logic           wait_count_clk_en,
+    input   logic   [1:0]   ram_read_wait_cycle,
+    input   logic   [1:0]   ram_write_wait_cycle
 );
 
     typedef enum {IDLE, RAM_WRITE_1, RAM_WRITE_2, RAM_READ_1, RAM_READ_2, COMPLETE_RAM_RW, WAIT} state_t;
@@ -52,12 +60,16 @@ module RAM (
     logic           enable_refresh;
     logic           write_protect;
 
+    logic   [1:0]   read_wait_count;
+    logic   [1:0]   write_wait_count;
     logic           access_ready;
 
     //
     // RAM Address Select (0x00000-0xAFFFF and 0xC0000-0xFFFFF)
     //
-    assign ram_address_select_n = ~(enable_sdram && ~(address[19:16] == 4'b1011));   // B0000h reserved for VRAM
+    assign ram_address_select_n = ~(enable_sdram && ~(address[19:16] == 4'b1011) &&  // B0000h reserved for VRAM
+	                               ~(~enable_a000h && address[19:16] == 4'b1010));    // A0000h is optional
+	 
 
     assign tandy_bios_select    = tandy_bios_flag & (address[19:16] == 4'b1111);
 
@@ -65,7 +77,8 @@ module RAM (
     //
     // Write protect
     //
-    assign write_protect = bios_protect_flag & (address[19:16] == 4'b1111);
+    assign write_protect = bios_protect_flag[1] & (address[19:16] == 4'b1111)
+                         | bios_protect_flag[0] & (address[19:14] == 6'b111011);
 
 
     //
@@ -322,7 +335,30 @@ module RAM (
             access_ready <= access_ready;
     end
 
-    assign  memory_access_ready = ((~ram_address_select_n) && ((~memory_read_n) || (~memory_write_n))) ? access_ready : 1'b1;
+    always_ff @(posedge clock, posedge reset) begin
+        if (reset)
+            read_wait_count     <= 0;
+        else if (~read_command)
+            read_wait_count     <= ram_read_wait_cycle;
+        else if ((wait_count_clk_en) && (read_wait_count != 0))
+            read_wait_count     <= read_wait_count - 1;
+        else
+            read_wait_count     <= read_wait_count;
+    end
+
+    always_ff @(posedge clock, posedge reset) begin
+        if (reset)
+            write_wait_count    <= 0;
+        else if (~write_command)
+            write_wait_count    <= ram_write_wait_cycle;
+        else if ((wait_count_clk_en) && (write_wait_count != 0))
+            write_wait_count    <= write_wait_count - 1;
+        else
+            write_wait_count    <= write_wait_count;
+    end
+
+    assign  memory_access_ready = ((~ram_address_select_n) && ((~memory_read_n) || (~memory_write_n)))
+                                        ? (access_ready & ((read_wait_count==0) || (~read_command)) & ((write_wait_count==0) || (~write_command))) : 1'b1;
 
 endmodule
 

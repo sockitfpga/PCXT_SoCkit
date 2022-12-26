@@ -1,15 +1,17 @@
 //
-// KFPC-XT Peripherals
-// Written by kitune-san
+// MiSTer PCXT Peripherals
+// Ported by @spark2k06
+//
+// Based on KFPC-XT written by @kitune-san
 //
 module PERIPHERALS #(
         parameter ps2_over_time = 16'd1000
     ) (
         input   logic           clock,
         input   logic           clk_sys,
-        input  logic           cpu_clock,
+        input   logic           cpu_clock,
         input   logic           peripheral_clock,
-        input   logic   [1:0]   turbo_mode,
+        input   logic   [1:0]   clk_select,
         input   logic           reset,
         // CPU
         output  logic           interrupt_to_cpu,
@@ -20,6 +22,7 @@ module PERIPHERALS #(
         // SplashScreen
         input   logic           splashscreen,
         // VGA
+        output  logic           std_hsyncwidth,
         input   logic           composite,
         input   logic           video_output,
         input   logic           clk_vga_cga,
@@ -35,8 +38,10 @@ module PERIPHERALS #(
         output  logic           VGA_VSYNC,
         output  logic           VGA_HBlank,
         output  logic           VGA_VBlank,
+        output  logic           VGA_VBlank_border,
         // I/O Ports
         input   logic   [19:0]  address,
+        output  logic   [19:0]  latch_address,
         input   logic   [7:0]   internal_data_bus,
         output  logic   [7:0]   data_bus_out,
         output  logic           data_bus_out_from_chipset,
@@ -66,39 +71,42 @@ module PERIPHERALS #(
         output  logic           ps2_mouseclk_out,
         output  logic           ps2_mousedat_out,
         input   logic   [4:0]   joy_opts,
-        input   logic   [31:0]  joy0,
-        input   logic   [31:0]  joy1,
+        input   logic   [13:0]  joy0,
+        input   logic   [13:0]  joy1,
         input   logic   [15:0]  joya0,
         input   logic   [15:0]  joya1,
         // JTOPL
         input   logic           clk_en_opl2,
         output  logic   [15:0]  jtopl2_snd_e,
-        input   logic           adlibhide,
+        input   logic   [1:0]   opl2_io,
+        // C/MS Audio
+        input   logic           cms_en,
+        output  reg     [15:0]  o_cms_l,
+        output  reg     [15:0]  o_cms_r,
         // TANDY
         input   logic           tandy_video,
         output  logic   [10:0]  tandy_snd_e,
         output  logic           tandy_snd_rdy,
         output  logic           tandy_16_gfx,
+        output  logic           tandy_color_16,
         // UART
         input   logic           clk_uart,
-        input   logic           clk_uart2,
-        input   logic           uart_rx,
-        output  logic           uart_tx,
-        input   logic           uart_cts_n,
-        input   logic           uart_dcd_n,
-        input   logic           uart_dsr_n,
-        output  logic           uart_rts_n,
-        output  logic           uart_dtr_n,
+        input   logic           uart2_rx,
+        output  logic           uart2_tx,
+        input   logic           uart2_cts_n,
+        input   logic           uart2_dcd_n,
+        input   logic           uart2_dsr_n,
+        output  logic           uart2_rts_n,
+        output  logic           uart2_dtr_n,
         // EMS
         input   logic           ems_enabled,
         input   logic   [1:0]   ems_address,
-        output  reg     [6:0]   map_ems[0:3], // Segment hE000, hE400, hE800, hEC00
-        output  reg             ena_ems[0:3], // Enable Segment Map hE000, hE400, hE800, hEC00
+        output  reg     [6:0]   map_ems[0:3], // Segment hx000, hx400, hx800, hxC00
+        output  reg             ena_ems[0:3], // Enable Segment Map hx000, hx400, hx800, hxC00
         output  logic           ems_b1,
         output  logic           ems_b2,
         output  logic           ems_b3,
         output  logic           ems_b4,
-        input   logic   [2:0]   bios_writable,
         // FDD
         input   logic   [15:0]  mgmt_address,
         input   logic           mgmt_read,
@@ -108,11 +116,13 @@ module PERIPHERALS #(
         input   logic   [27:0]  clock_rate,
         input   logic   [1:0]   floppy_wp,
         output  logic   [1:0]   fdd_request,
+        output  logic   [2:0]   ide0_request,
         output  logic           fdd_dma_req,
         input   logic           fdd_dma_ack,
         input   logic           terminal_count,
         // XTCTL DATA
-        output  logic   [7:0]   xtctl = 8'h00
+        output  logic   [7:0]   xtctl = 8'h00,
+        output  logic           pause_core
     );
 
     wire [4:0] clkdiv;
@@ -146,7 +156,7 @@ module PERIPHERALS #(
 
     always_comb
     begin
-        if (~address_enable_n & ~address[9] & ~address[8])
+        if (iorq & ~address_enable_n & ~address[9] & ~address[8] & (tandy_video ? ~address[4] : 1'b1))
         begin
             casez (address[7:5])
                 3'b000:
@@ -177,39 +187,54 @@ module PERIPHERALS #(
 
     wire    iorq = ~io_read_n | ~io_write_n;
 
-    assign  dma_chip_select_n       = iorq && chip_select_n[0];
-    wire    interrupt_chip_select_n = iorq && chip_select_n[1];
-    wire    timer_chip_select_n     = iorq && chip_select_n[2];
-    wire    ppi_chip_select_n       = iorq && chip_select_n[3];
-    assign  dma_page_chip_select_n  = iorq && chip_select_n[4];
+    assign  dma_chip_select_n       = chip_select_n[0]; // 0x00 .. 0x1F
+    wire    interrupt_chip_select_n = chip_select_n[1]; // 0x20 .. 0x3F
+    wire    timer_chip_select_n     = chip_select_n[2]; // 0x40 .. 0x5F
+    wire    ppi_chip_select_n       = chip_select_n[3]; // 0x60 .. 0x7F
+    assign  dma_page_chip_select_n  = chip_select_n[4]; // 0x80 .. 0x8F
+    wire    nmi_chip_select_n       = chip_select_n[5]; // 0xA0 .. 0xBF
+    wire    tandy_chip_select_n     = ~tandy_video ? 1'b1 :
+                                      chip_select_n[6]; // 0xC0 .. 0xDF
+    wire    joystick_select         = (iorq && ~address_enable_n && address[15:3] == (16'h0200 >> 3)); // 0x200 .. 0x207
+    wire    nmi_mask_register       = (tandy_video && ~nmi_chip_select_n);
 
-    wire    joystick_select        = (iorq && ~address_enable_n && address[15:3] == (16'h0200 >> 3)); // 0x200 .. 0x207
-    wire    nmi_mask_register_n    = ~(tandy_video && iorq && ~address_enable_n && address[15:3] == (16'h00a0 >> 3)); // 0xa0 - 0xa7
+    wire    opl_388_chip_select     = (iorq && ~address_enable_n && ~opl2_io[1] && address[15:1] == (16'h0388 >> 1)); // 0x388 .. 0x389 (Adlib)
+    wire    opl_228_chip_select     = (iorq && ~address_enable_n && (opl2_io == 2'b01) && address[15:1] == (16'h0228 >> 1)); // 0x228 .. 0x229 (Sound Blaster FM)
+    wire    cms_220_chip_select     = (iorq && ~address_enable_n && address[15:4] == (16'h0220 >> 4)); // 0x220 .. 0x22F (C/MS Audio)
+    wire    video_mem_select        = (tandy_video && ~iorq && ~address_enable_n & (address[19:17] == nmi_mask_register_data[3:1])); // 128KB
+    wire    cga_mem_select          = (~iorq && ~address_enable_n && enable_cga & (address[19:15] == 5'b10111)); // B8000 - BFFFF (16 KB / 32 KB)
+    wire    mda_mem_select          = (~iorq && ~address_enable_n && enable_mda & (address[19:15] == 6'b10110)); // B0000 - B7FFF (8 repeated blocks of 4Kb)
+    wire    uart_chip_select        = (~address_enable_n && {address[15:3], 3'd0} == 16'h03F8);
+    wire    uart2_chip_select       = (~address_enable_n && {address[15:3], 3'd0} == 16'h02F8);
+    wire    lpt_chip_select         = (iorq && ~address_enable_n && address[15:0] == 16'h0378);
+    wire    tandy_page_chip_select  = (tandy_video && iorq && ~address_enable_n && address[15:0] == 16'h03DF);
+    wire    xtctl_chip_select       = (iorq && ~address_enable_n && address[15:0] == 16'h8888);
+    wire    rtc_chip_select         = (iorq && ~address_enable_n && address[15:1] == (16'h02C0 >> 1)); // 0x2C0 .. 0x2C1
 
-    wire    tandy_chip_select_n    = ~(iorq && ~address_enable_n && address[15:3] == (16'h00c0 >> 3)); // 0xc0 - 0xc7
-    wire    opl_chip_select_n      = ~(iorq && ~address_enable_n && address[15:1] == (16'h0388 >> 1)); // 0x388 .. 0x389
-    wire    video_chip_select_n    = ~((tandy_video & grph_mode & hres_mode) && ~iorq && ~address_enable_n & (address[19:17] == nmi_mask_register_data[3:1])); // 128KB
-    wire    cga_chip_select_n      = ~(~iorq && ~address_enable_n && enable_cga & (address[19:15] == 5'b10111)); // B8000 - BFFFF (16 KB / 32 KB)
-    wire    mda_chip_select_n      = ~(~iorq && ~address_enable_n && enable_mda & (address[19:15] == 6'b10110)); // B0000 - B7FFF (8 repeated blocks of 4Kb)
-    wire    uart_cs                =  (~address_enable_n && {address[15:3], 3'd0} == 16'h03F8);
-    wire    uart2_cs               =  (~address_enable_n && {address[15:3], 3'd0} == 16'h02F8);
-    wire    lpt_cs                 =  (iorq && ~address_enable_n && address[15:0] == 16'h0378);
-    wire    tandy_page_cs          =  (iorq && ~address_enable_n && address[15:0] == 16'h03DF);
-    wire    xtctl_cs               =  (iorq && ~address_enable_n && address[15:0] == 16'h8888);
-
-    wire    [3:0] ems_page_address = (ems_address == 2'b00) ? 4'b1010 : (ems_address == 2'b01) ? 4'b1100 : 4'b1101;
-    wire    ems_oe                 = (iorq && ~address_enable_n && ems_enabled && ({address[15:2], 2'd0} == 16'h0260));          // 260h..263h
-    assign  ems_b1                 = (~iorq && ena_ems[0] && (address[19:14] == {ems_page_address, 2'b00})); // A0000h - C0000h - D0000h
-    assign  ems_b2                 = (~iorq && ena_ems[1] && (address[19:14] == {ems_page_address, 2'b01})); // A4000h - C4000h - D4000h
-    assign  ems_b3                 = (~iorq && ena_ems[2] && (address[19:14] == {ems_page_address, 2'b10})); // A8000h - C8000h - D8000h
-    assign  ems_b4                 = (~iorq && ena_ems[3] && (address[19:14] == {ems_page_address, 2'b11})); // AC000h - CC000h - DC000h
-
-    wire    floppy0_select_n        = ~(~address_enable_n && (({address[15:2], 2'd0} == 16'h03F0) || ({address[15:1], 1'd0} == 16'h03F4) || ({address[15:0]} == 16'h03F7)));
+    wire    [3:0] ems_page_address  = (ems_address == 2'b00) ? 4'b1100 : (ems_address == 2'b01) ? 4'b1101 : 4'b1110;
+    wire    ems_chip_select         = (iorq && ~address_enable_n && ems_enabled && ({address[15:2], 2'd0} == 16'h0260));          // 260h..263h
+    assign  ems_b1                  = (~iorq && ena_ems[0] && (address[19:14] == {ems_page_address, 2'b00})); // C0000h - D0000h - E0000h
+    assign  ems_b2                  = (~iorq && ena_ems[1] && (address[19:14] == {ems_page_address, 2'b01})); // C4000h - D4000h - E4000h
+    assign  ems_b3                  = (~iorq && ena_ems[2] && (address[19:14] == {ems_page_address, 2'b10})); // C8000h - D8000h - E8000h
+    assign  ems_b4                  = (~iorq && ena_ems[3] && (address[19:14] == {ems_page_address, 2'b11})); // CC000h - DC000h - EC000h
+    wire    ide0_chip_select_n      = ~(iorq && ~address_enable_n && ({address[15:4], 4'd0} == 16'h0300));
+    wire    floppy0_chip_select_n   = ~(~address_enable_n && (({address[15:2], 2'd0} == 16'h03F0) || ({address[15:1], 1'd0} == 16'h03F4) || ({address[15:0]} == 16'h03F7)));
 
     logic   [1:0]   ems_access_address;
     logic           ems_write_enable;
     logic   [7:0]   write_map_ems_data;
     logic           write_map_ena_data;
+	 
+    //
+    // I/O Ports
+    //
+    // Address
+    always_comb begin
+        if (cga_mem_select && ~memory_write_n && tandy_video)
+            latch_address   = {nmi_mask_register_data[3:1], tandy_page_data[3] ? {tandy_page_data[5:3], video_ram_address[13:0]} : {tandy_page_data[5:4], video_ram_address[14:0]}};
+        else
+            latch_address   = address;
+    end
 
     always_ff @(posedge clock, posedge reset)
     begin
@@ -223,7 +248,7 @@ module PERIPHERALS #(
         else
         begin
             ems_access_address  <= address[1:0];
-            ems_write_enable    <= ems_oe && ~io_write_n;
+            ems_write_enable    <= ems_chip_select && ~io_write_n;
             write_map_ems_data  <= (internal_data_bus == 8'hFF) ? 8'hFF : (internal_data_bus < 8'h80) ? internal_data_bus[6:0] : map_ems[address[1:0]];
             write_map_ena_data  <= (internal_data_bus == 8'hFF) ? 1'b0  : (internal_data_bus < 8'h80) ? 1'b1 : ena_ems[address[1:0]];
         end
@@ -418,7 +443,8 @@ module PERIPHERALS #(
         // I/O
         .irq                        (keybord_irq),
         .keycode                    (keycode),
-        .clear_keycode              (clear_keycode)
+        .clear_keycode              (clear_keycode),
+        .pause_core                 (pause_core)
     );
 
     // Keybord reset
@@ -460,8 +486,6 @@ module PERIPHERALS #(
 
 
     wire [7:0] jtopl2_dout;
-    wire [7:0] opl32_data;
-    assign opl32_data = adlibhide ? 8'hFF : jtopl2_dout;
 
     jtopl2 jtopl2_inst
     (
@@ -471,7 +495,7 @@ module PERIPHERALS #(
         .din(internal_data_bus),
         .dout(jtopl2_dout),
         .addr(address[0]),
-        .cs_n(opl_chip_select_n),
+        .cs_n(~(opl_228_chip_select || opl_388_chip_select)),
         .wr_n(io_write_n),
         .irq_n(),
         .snd(jtopl2_snd_e),
@@ -491,6 +515,89 @@ module PERIPHERALS #(
 		  .sound(tandy_snd_e),
 		  .ready(tandy_snd_rdy)
     );
+	 
+//------------------------------------------------------------------------------
+
+reg [27:0] clk_rate;
+always @(posedge clock) clk_rate <= clock_rate;
+
+reg ce_1us;
+always @(posedge clock) begin
+	reg [27:0] sum = 0;
+
+	ce_1us = 0;
+	sum = sum + 28'd1000000;
+	if(sum >= clk_rate) begin
+		sum = sum - clk_rate;
+		ce_1us = 1;
+	end
+end	 
+	 
+//------------------------------------------------------------------------------ c/ms
+
+    wire cms_rd = (address[3:0] == 4'h4 || address[3:0] == 4'hB) && cms_220_chip_select && cms_en;
+    wire [7:0] data_from_cms = address[3] ? cms_det : 8'h7F;
+
+    wire cms_wr = ~address[3] & cms_220_chip_select & cms_en;
+
+    reg [7:0] cms_det;
+    always @(posedge clock) if(~io_write_n && cms_wr && &address[2:1]) cms_det <= internal_data_bus;
+
+    reg ce_saa;
+    always @(posedge clock) begin
+	    reg [27:0] sum = 0;
+
+	    ce_saa = 0;
+	    sum = sum + 28'd7159090;
+	    if(sum >= clk_rate) begin
+		    sum = sum - clk_rate;
+		    ce_saa = 1;
+	    end
+    end
+
+    wire [7:0] saa1_l,saa1_r;
+    saa1099 ssa1
+    (
+	    .clk_sys(clock),
+	    .ce(ce_saa),
+	    .rst_n(~reset & cms_en),
+	    .cs_n(~(cms_wr && (address[2:1] == 0))),
+	    .a0(address[0]),
+	    .wr_n(io_write_n),
+	    .din(internal_data_bus),
+	    .out_l(saa1_l),
+	    .out_r(saa1_r)
+    );
+
+    wire [7:0] saa2_l,saa2_r;
+    saa1099 ssa2
+    (
+	    .clk_sys(clock),
+	    .ce(ce_saa),
+	    .rst_n(~reset & cms_en),
+	    .cs_n(~(cms_wr && (address[2:1] == 1))),
+	    .a0(address[0]),
+	    .wr_n(io_write_n),
+	    .din(internal_data_bus),
+	    .out_l(saa2_l),
+	    .out_r(saa2_r)
+    );
+
+    wire [8:0] cms_l = {1'b0, saa1_l} + {1'b0, saa2_l};
+    wire [8:0] cms_r = {1'b0, saa1_r} + {1'b0, saa2_r};
+	 
+    reg [15:0] sample_pre_l, sample_pre_r;
+    always @(posedge clock) begin
+	    sample_pre_l <= {2'b0, cms_l, cms_l[8:4]};
+	    sample_pre_r <= {2'b0, cms_r, cms_r[8:4]};
+    end
+
+    always @(posedge clock) begin
+	    o_cms_l <= $signed(sample_pre_l) >>> ~{3'd7};
+	    o_cms_r <= $signed(sample_pre_r) >>> ~{3'd7};
+    end
+	 
+//
 
     logic   keybord_interrupt_ff;
     logic   uart_interrupt_ff;
@@ -566,22 +673,25 @@ module PERIPHERALS #(
                 write_to_uart2 <= write_to_uart2;
             end
 
-            if ((lpt_cs) && (~io_write_n))
+            if ((lpt_chip_select) && (~io_write_n))
                 lpt_data <= internal_data_bus;
 
-            if ((xtctl_cs) && (~io_write_n))
+            if ((xtctl_chip_select) && (~io_write_n))
                 xtctl <= internal_data_bus;
 
-            if ((tandy_page_cs) && (~io_write_n))
+            if ((tandy_page_chip_select) && (~io_write_n))
                 tandy_page_data <= internal_data_bus;
 
-            if ((~nmi_mask_register_n) && (~io_write_n))
+            if (nmi_mask_register && (~io_write_n))
                 nmi_mask_register_data <= internal_data_bus;
         end
 
     end
 
     wire iorq_uart = (io_write_n & ~prev_io_write_n) || (~io_read_n  & prev_io_read_n);
+    wire uart_tx;
+    wire rts_n;
+	 
     uart uart1
     (
         .clk               (clock),
@@ -593,27 +703,21 @@ module PERIPHERALS #(
         .read              (~io_read_n  & prev_io_read_n),
         .write             (io_write_n & ~prev_io_write_n),
         .readdata          (uart_readdata_1),
-        .cs                (uart_cs & iorq_uart),
-
-        .rx                (uart_rx),
-        .tx                (uart_tx),
-        .cts_n             (uart_cts_n),
-        .dcd_n             (uart_dcd_n),
-        .dsr_n             (uart_dsr_n),
-        .rts_n             (uart_rts_n),
-        .dtr_n             (uart_dtr_n),
+        .cs                (uart_chip_select & iorq_uart),
+        .rx                (uart_tx),
+        .cts_n             (0),
+        .dcd_n             (0),
+        .dsr_n             (0),
         .ri_n              (1),
-
+        .rts_n             (rts_n),
         .irq               (uart_irq)
     );
-
-    wire uart2_tx;
-    wire rts_n;
+	 
 
     uart uart2
     (
         .clk               (clock),
-        .br_clk            (clk_uart2),
+        .br_clk            (clk_uart),
         .reset             (reset),
 
         .address           (address[2:0]),
@@ -621,16 +725,20 @@ module PERIPHERALS #(
         .read              (~io_read_n  & prev_io_read_n),
         .write             (io_write_n & ~prev_io_write_n),
         .readdata          (uart2_readdata_1),
-        .cs                (uart2_cs & iorq_uart),
-        .rx                (uart2_tx),
-        .cts_n             (0),
-        .dcd_n             (0),
-        .dsr_n             (0),
+        .cs                (uart2_chip_select & iorq_uart),
+
+        .rx                (uart2_rx),
+        .tx                (uart2_tx),
+        .cts_n             (uart2_cts_n),
+        .dcd_n             (uart2_dcd_n),
+        .dsr_n             (uart2_dsr_n),
+        .rts_n             (uart2_rts_n),
+        .dtr_n             (uart2_dtr_n),
         .ri_n              (1),
-        .rts_n             (rts_n),
+
         .irq               (uart2_irq)
     );
-
+	 
     MSMouseWrapper MSMouseWrapper_inst 
     (
         .clk(clock),
@@ -639,7 +747,7 @@ module PERIPHERALS #(
         .ps2dta_out(ps2_mousedat_out),
         .ps2clk_out(ps2_mouseclk_out),
         .rts(~rts_n),
-        .rd(uart2_tx)
+        .rd(uart_tx)
     );
 
     // Timing of the readings may need to be reviewed.
@@ -661,9 +769,9 @@ module PERIPHERALS #(
     logic  [16:0]  video_ram_address;
     logic  [7:0]   video_ram_data;
     logic          video_memory_write_n;
-    logic          mda_chip_select_n_1;
-    logic          cga_chip_select_n_1;
-    logic          video_chip_select_n_1;
+    logic          mda_mem_select_1;
+    logic          cga_mem_select_1;
+    logic          video_mem_select_1;
     logic  [14:0]  video_io_address;
     logic  [7:0]   video_io_data;
     logic          video_io_write_n;
@@ -687,10 +795,8 @@ module PERIPHERALS #(
     logic  [7:0]   cga_io_data_2;
     logic          cga_io_write_n_1;
     logic          cga_io_write_n_2;
-    logic          cga_io_write_n_3;
     logic          cga_io_read_n_1;
     logic          cga_io_read_n_2;
-    logic          cga_io_read_n_3;
     logic          cga_address_enable_n_1;
     logic          cga_address_enable_n_2;
 
@@ -713,9 +819,9 @@ module PERIPHERALS #(
         video_ram_address       <= address[16:0];
         video_ram_data          <= internal_data_bus;
         video_memory_write_n    <= memory_write_n;
-        mda_chip_select_n_1     <= mda_chip_select_n;
-        cga_chip_select_n_1     <= cga_chip_select_n;
-        video_chip_select_n_1   <= video_chip_select_n;
+        mda_mem_select_1        <= mda_mem_select;
+        cga_mem_select_1        <= cga_mem_select;
+        video_mem_select_1      <= video_mem_select;
 
         video_io_write_n        <= io_write_n;
         video_io_read_n         <= io_read_n;
@@ -746,10 +852,8 @@ module PERIPHERALS #(
         cga_io_data_2       <= cga_io_data_1;
         cga_io_write_n_1    <= video_io_write_n;
         cga_io_write_n_2    <= cga_io_write_n_1;
-        cga_io_write_n_3    <= cga_io_write_n_2;
         cga_io_read_n_1     <= video_io_read_n;
         cga_io_read_n_2     <= cga_io_read_n_1;
-        cga_io_read_n_3     <= cga_io_read_n_2;
         cga_address_enable_n_1  <= video_address_enable_n;
         cga_address_enable_n_2  <= cga_address_enable_n_1;
     end
@@ -888,8 +992,8 @@ module PERIPHERALS #(
         .clk                        (clk_vga_cga),
         .clkdiv                     (clkdiv),
         .bus_a                      (cga_io_address_2),
-        .bus_ior_l                  (cga_io_read_n_3),
-        .bus_iow_l                  (cga_io_write_n_3),
+        .bus_ior_l                  (cga_io_read_n_2),
+        .bus_iow_l                  (cga_io_write_n_2),
         .bus_memr_l                 (1'd0),
         .bus_memw_l                 (1'd0),
         .bus_d                      (cga_io_data_2),
@@ -904,6 +1008,8 @@ module PERIPHERALS #(
         .hblank                     (HBLANK_CGA),
         .vsync                      (VSYNC_CGA),
         .vblank                     (VBLANK_CGA),
+        .vblank_border              (VGA_VBlank_border),
+        .std_hsyncwidth             (std_hsyncwidth),
         .de_o                       (de_o_cga),
         .video                      (video_cga),              // non scandoubled
     //  .dbl_video                  (video_cga),              // scandoubled
@@ -911,7 +1017,8 @@ module PERIPHERALS #(
         .thin_font                  (thin_font),
         .tandy_video                (tandy_video),
         .grph_mode                  (grph_mode),
-        .hres_mode                  (hres_mode)
+        .hres_mode                  (hres_mode),
+		  .tandy_color_16             (tandy_color_16)
     );
 
     always_ff @(posedge clock)
@@ -931,15 +1038,15 @@ module PERIPHERALS #(
     vram #(.AW(17)) cga_vram
     (
         .clka                       (clock),
-        .ena                        (~cga_chip_select_n_1 || ~video_chip_select_n_1),
-        .wea                        (~video_memory_write_n),
-        .addra                      ((tandy_video & grph_mode & hres_mode) ? ~video_chip_select_n_1 ? video_ram_address : tandy_page_data[3] ? {tandy_page_data[5:3], video_ram_address[13:0]} : {tandy_page_data[5:4], video_ram_address[14:0]} : video_ram_address[13:0]),
+        .ena                        (cga_mem_select_1 || video_mem_select_1),
+        .wea                        (~video_memory_write_n & memory_write_n),
+        .addra                      (tandy_video ? video_mem_select_1 ? video_ram_address : tandy_page_data[3] ? {tandy_page_data[5:3], video_ram_address[13:0]} : {tandy_page_data[5:4], video_ram_address[14:0]} : video_ram_address[13:0]),
         .dina                       (video_ram_data),
         .douta                      (cga_vram_cpu_dout),
         .clkb                       (clk_vga_cga),
         .web                        (1'b0),
         .enb                        (CGA_VRAM_ENABLE),
-        .addrb                      ((tandy_video & grph_mode & hres_mode) ? {tandy_page_data[2:1], CGA_VRAM_ADDR[14:0]} : CGA_VRAM_ADDR[13:0]),
+        .addrb                      (tandy_video ? (grph_mode & hres_mode) ? {tandy_page_data[2:1], CGA_VRAM_ADDR[14:0]} : {tandy_page_data[2:0], CGA_VRAM_ADDR[13:0]} : CGA_VRAM_ADDR[13:0]),
         .dinb                       (8'h0),
         .doutb                      (CGA_VRAM_DOUT)
     );
@@ -948,7 +1055,7 @@ module PERIPHERALS #(
     vram #(.AW(12)) mda_vram
     (
         .clka                       (clock),
-        .ena                        (~mda_chip_select_n_1),
+        .ena                        (mda_mem_select_1),
         .wea                        (~video_memory_write_n),
         .addra                      (video_ram_address[11:0]),
         .dina                       (video_ram_data),
@@ -963,9 +1070,110 @@ module PERIPHERALS #(
 
 
     //
+    // XT2IDE
+    //
+    logic   [7:0]   xt2ide0_data_bus_out;
+    logic           ide0_cs1fx;
+    logic           ide0_cs3fx;
+    logic           ide0_io_read_n;
+    logic           ide0_io_write_n;
+    logic   [2:0]   ide0_address;
+    logic   [15:0]  ide0_data_bus_in;
+    logic   [15:0]  ide0_data_bus_out;
+
+    XT2IDE xt2ide0 (
+        .clock              (clock),
+        .reset              (reset),
+
+        .high_speed         (0),
+
+        .chip_select_n      (ide0_chip_select_n),
+        .io_read_n          (io_read_n),
+        .io_write_n         (io_write_n),
+
+        .address            (address[3:0]),
+        .data_bus_in        (internal_data_bus),
+        .data_bus_out       (xt2ide0_data_bus_out),
+
+        .ide_cs1fx          (ide0_cs1fx),
+        .ide_cs3fx          (ide0_cs3fx),
+        .ide_io_read_n      (ide0_io_read_n),
+        .ide_io_write_n     (ide0_io_write_n),
+
+        .ide_address        (ide0_address),
+        .ide_data_bus_in    (ide0_data_bus_in),
+        .ide_data_bus_out   (ide0_data_bus_out)
+    );
+
+
+    //
+    // IDE
+    //
+    logic           mgmt_ide0_cs;
+    logic [15:0]    mgmt_ide0_readdata;
+    logic           ide0_command_cs;
+    logic           ide0_control_cs;
+    logic           ide0_comd_ctrl_select;
+    logic           ide0_io_read;
+    logic           ide0_io_read_1;
+    logic           ide0_io_write;
+    logic           prev_ide0_io_read;
+    logic           prev_ide0_io_write;
+    logic [3:0]     ide0_address_1;
+    logic [15:0]    ide0_writedata;
+
+    assign mgmt_ide0_cs     = (mgmt_address[15:8] == 8'hF0);
+
+    assign ide0_command_cs  = ~ide0_cs1fx;
+    assign ide0_control_cs  = ~ide0_cs3fx & &ide0_address[2:1];
+    assign ide0_io_read     = ~ide0_io_read_n  & (ide0_command_cs | ide0_control_cs);
+    assign ide0_io_write    = ~ide0_io_write_n & (ide0_command_cs | ide0_control_cs);
+
+    always_ff @(posedge clock)
+    begin
+        ide0_io_read_1          <= ide0_io_read;
+        prev_ide0_io_read       <= ide0_io_read_1;
+        prev_ide0_io_write      <= ide0_io_write;
+        ide0_address_1          <= ~ide0_control_cs ? {1'b0, ide0_address} : {1'b1, ide0_address};
+        ide0_writedata          <= ide0_data_bus_out;
+    end
+
+    ide ide
+    (
+        .clk            (clock),
+        .rst_n          (~reset),
+
+//        .irq            (),
+//        .drq            (),
+
+        .use_fast       (0),
+//        .no_data        (),
+
+//        .drive_en       (),
+
+        .io_address     (ide0_address_1),
+        .io_read        (ide0_io_read   & ~prev_ide0_io_read),
+        .io_readdata    (ide0_data_bus_in),
+        .io_write       (~ide0_io_write & prev_ide0_io_write),
+        .io_writedata   (ide0_writedata),
+        .io_32          (0),
+
+//        .io_wait        (),
+
+        .request                    (ide0_request),
+        .mgmt_address               (mgmt_address[3:0]),
+        .mgmt_writedata             (mgmt_writedata),
+        .mgmt_readdata              (mgmt_ide0_readdata),
+        .mgmt_write                 (mgmt_write & mgmt_ide0_cs),
+        .mgmt_read                  (mgmt_read & mgmt_ide0_cs)
+    );
+
+
+    //
     // FDC
     //
     logic           mgmt_fdd_cs;
+    logic   [15:0]  mgmt_fdd_readdata;
     logic   [7:0]   write_to_fdd;
     logic   [2:0]   fdd_io_address;
     logic           fdd_io_read;
@@ -993,9 +1201,9 @@ module PERIPHERALS #(
     always_ff @(posedge clock)
     begin
         fdd_io_address     <= address[2:0];
-        fdd_io_read        <= ~io_read_n & prev_io_read_n   & ~floppy0_select_n;
+        fdd_io_read        <= ~io_read_n & prev_io_read_n   & ~floppy0_chip_select_n;
         fdd_io_read_1      <= fdd_io_read;
-        fdd_io_write       <= io_write_n & ~prev_io_write_n & ~floppy0_select_n;
+        fdd_io_write       <= io_write_n & ~prev_io_write_n & ~floppy0_chip_select_n;
     end
 
     assign  fdd_dma_read    = fdd_dma_ack & ~io_read_n;
@@ -1047,7 +1255,7 @@ module PERIPHERALS #(
         .mgmt_write                 (mgmt_write & mgmt_fdd_cs),
         .mgmt_writedata             (mgmt_writedata),
         .mgmt_read                  (mgmt_read  & mgmt_fdd_cs),
-        .mgmt_readdata              (mgmt_readdata),
+        .mgmt_readdata              (mgmt_fdd_readdata),
 
         .wp                         (floppy_wp),
 
@@ -1078,6 +1286,12 @@ module PERIPHERALS #(
 
 
     //
+    // mgmt_readdata
+    //
+    assign mgmt_readdata = mgmt_ide0_cs ? mgmt_ide0_readdata : mgmt_fdd_readdata;
+
+
+    //
     // KFTVGA
     //
     
@@ -1104,6 +1318,34 @@ module PERIPHERALS #(
     //     .video_b                    (video_b)
     // );
 
+	 
+    // RTC
+	 
+    logic           mgmt_rtc_cs;
+    logic   [7:0]   rtc_readdata;
+	 
+    assign mgmt_rtc_cs   = (mgmt_address[15:8] == 8'hF4);
+
+    rtc rtc
+    (
+       .clk               (clock),
+       .rst_n             (~reset),
+
+       .clock_rate        (clock_rate),
+
+       .io_address        (address[0]),
+       .io_writedata      (internal_data_bus),
+       .io_read           (~io_read_n & rtc_chip_select),
+       .io_write          (~io_write_n & rtc_chip_select),
+       .io_readdata       (rtc_readdata),
+
+       .mgmt_address      (mgmt_address),
+       .mgmt_write        (mgmt_write & mgmt_rtc_cs),
+       .mgmt_writedata    (mgmt_writedata[7:0]),
+
+       .memcfg            (1'b0),
+       .bootcfg           (5'd0)
+    );
     
 
     //
@@ -1117,7 +1359,7 @@ module PERIPHERALS #(
         .clk                       (clock),
         .reset                     (reset),
         .en                        (joystick_select && ~io_write_n),
-        .turbo_mode                (turbo_mode),
+        .clk_select                (clk_select),
         .joy_opts                  (joy_opts),
         .joy0                      (joy0),
         .joy1                      (joy1),
@@ -1153,12 +1395,12 @@ module PERIPHERALS #(
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= ppi_data_bus_out;
         end
-        else if ((~cga_chip_select_n) && (~memory_read_n))
+        else if (cga_mem_select && (~memory_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= cga_vram_cpu_dout;
         end
-        else if ((~mda_chip_select_n) && (~memory_read_n))
+        else if (mda_mem_select && (~memory_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= mda_vram_cpu_dout;
@@ -1173,37 +1415,42 @@ module PERIPHERALS #(
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= MDA_CRTC_DOUT_2;
         end
-        else if ((~opl_chip_select_n) && (~io_read_n))
+        else if ((opl_228_chip_select || opl_388_chip_select) && ~io_read_n)
         begin
             data_bus_out_from_chipset <= 1'b1;
-            data_bus_out <= opl32_data;
+            data_bus_out <= jtopl2_dout;
         end
-        else if ((uart_cs) && (~io_read_n))
+        else if (cms_rd && ~io_read_n)
+        begin
+            data_bus_out_from_chipset <= 1'b1;
+            data_bus_out <= data_from_cms;
+        end
+        else if ((uart_chip_select) && (~io_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= uart_readdata;
         end
-        else if ((uart2_cs) && (~io_read_n))
+        else if ((uart2_chip_select) && (~io_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= uart2_readdata;
         end
-        else if ((ems_oe) && (~io_read_n))
+        else if ((ems_chip_select) && (~io_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= ena_ems[address[1:0]] ? map_ems[address[1:0]] : 8'hFF;
         end
-        else if ((lpt_cs) && (~io_read_n))
+        else if ((lpt_chip_select) && (~io_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= lpt_data;
         end
-        else if ((xtctl_cs) && (~io_read_n))
+        else if ((xtctl_chip_select) && (~io_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= xtctl;
         end
-        else if ((~nmi_mask_register_n) && (~io_read_n))
+        else if (nmi_mask_register && (~io_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= nmi_mask_register_data;
@@ -1213,10 +1460,20 @@ module PERIPHERALS #(
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= joy_data;
         end
-        else if ((~floppy0_select_n || fdd_dma_read) && (~io_read_n))
+        else if ((~ide0_chip_select_n) && (~io_read_n))
+        begin
+            data_bus_out_from_chipset <= 1'b1;
+            data_bus_out <= xt2ide0_data_bus_out;
+        end
+        else if ((~floppy0_chip_select_n || fdd_dma_read) && (~io_read_n))
         begin
             data_bus_out_from_chipset <= 1'b1;
             data_bus_out <= fdd_readdata;
+        end
+        else if (rtc_chip_select && (~io_read_n))
+        begin
+            data_bus_out_from_chipset <= 1'b1;
+            data_bus_out <= rtc_readdata;
         end
         else
         begin

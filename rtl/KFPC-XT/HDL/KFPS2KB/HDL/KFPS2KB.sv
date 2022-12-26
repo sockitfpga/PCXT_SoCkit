@@ -16,7 +16,8 @@ module KFPS2KB #(
 
     output  logic           irq,
     output  logic   [7:0]   keycode,
-    input   logic           clear_keycode
+    input   logic           clear_keycode,
+    output  reg             pause_core
 );
     //
     // Internal Signals
@@ -216,6 +217,7 @@ module KFPS2KB #(
             irq         <= 1'b0;
             keycode     <= 8'h00;
             break_flag  <= 1'b0;
+            pause_core  <= 1'b0;
         end
         else if (clear_keycode) begin
             irq         <= 1'b0;
@@ -245,6 +247,19 @@ module KFPS2KB #(
                 irq         <= 1'b0;
                 keycode     <= 8'h00;
                 break_flag  <= 1'b1;
+            end
+            else if (register == 8'h07) begin
+                // F12 -> Pause core and credits
+                irq         <= 1'b0;
+                keycode     <= 8'h00;
+                break_flag  <= 1'b0;
+					 pause_core <= break_flag ? ~pause_core : pause_core;
+            end
+            else if (pause_core) begin
+                // The core is paused and the credits are visible
+                irq         <= 1'b0;
+                keycode     <= 8'h00;
+                break_flag  <= 1'b0;
             end
             else begin
                 // Make code

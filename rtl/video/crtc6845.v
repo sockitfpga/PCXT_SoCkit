@@ -20,12 +20,14 @@ module crtc6845(
     output reg [7:0] bus_out,
 
     input lock,
+    output std_hsyncwidth,
 
     // Video control signals
     output hsync,
     output vsync,
-	output hblank,
+    output hblank,
     output vblank,
+    output vblank_border,
     output display_enable,
     output cursor,
     output [13:0] mem_addr,
@@ -136,10 +138,12 @@ module crtc6845(
     wire [13:0] ma = 14'd0;
     reg [13:0] ma_rst = 14'd0; // Column reset of memory address
 
+    reg [1:0] vs_del;
     reg vs = 1'b0;
     reg hs = 1'b0;
     reg hdisp = 1'b1;
     reg vdisp = 1'b1;
+    reg vdisp_border = 1'b1;
     reg [12:0] hdisp_del;
 
     wire cur_on;
@@ -147,12 +151,15 @@ module crtc6845(
 
     wire h_end;
     wire v_end;
+	 
+    assign std_hsyncwidth = (h_syncwidth == 4'hA);
 
     assign vsync = vs;
     assign hsync = hs;
     assign display_enable = hdisp & vdisp;    
     assign hblank = ~hdisp;
-	 assign vblank = ~vdisp;
+    assign vblank = ~vdisp;
+    assign vblank_border = ~vdisp_border;
 
     assign row_addr = v_scancount;
 
@@ -194,11 +201,18 @@ module crtc6845(
 
     assign v_end = (v_rowcount == v_total) &
                    (v_scancount == v_maxscan + v_totaladj);
+	 
     // Vertical counter
     always @ (posedge clk)
     begin
         if (divclk & (h_count == h_total)) begin // was h_syncpos
+		  
+            vs_del <= {vs_del[0], vs};
 
+            // Handle vertical border blanking
+            if ((v_rowcount + 1 == v_syncpos) && (v_scancount + 1 == v_maxscan))
+                vdisp_border <= 1'b0;
+					 
             if (v_rowcount != v_total) begin
                 // Vertical count event
                 if (v_scancount != v_maxscan) begin
@@ -219,9 +233,12 @@ module crtc6845(
                 end
             end else begin
                 // Pad with vertical adjust
+				 
                 if (v_scancount != v_maxscan + v_totaladj) begin
                     v_scancount <= v_scancount + 1'b1;
+								
                 end else begin
+								
                     v_scancount <= 0;
                     v_rowcount <= 0;
                     vdisp <= 1'b1;
@@ -240,6 +257,8 @@ module crtc6845(
                     v_synccount <= v_synccount + 1'b1;
                 end
             end
+            else if (vs_del == 2'b10) vdisp_border <= 1'b1;
+				
         end
     end
 
