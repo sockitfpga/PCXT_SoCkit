@@ -47,7 +47,8 @@ module cga(
     input tandy_video,     
     output grph_mode,
     output hres_mode,
-    output tandy_color_16
+    output tandy_color_16,
+    input cga_hw
     );
 
     parameter MDA_70HZ = 0;
@@ -150,11 +151,11 @@ module cga(
     assign vsync = ~vsync_l;
 
     // Mapped IO
-    assign crtc_cs = (bus_a[14:3] == IO_BASE_ADDR[14:3]) & ~bus_aen; // 3D4/3D5
-    assign status_cs = (bus_a == IO_BASE_ADDR + 20'hA) & ~bus_aen;
-    assign tandy_newcolorsel_cs = (bus_a == IO_BASE_ADDR + 20'hE) & ~bus_aen;     
-    assign control_cs = (bus_a == IO_BASE_ADDR + 16'h8) & ~bus_aen;
-    assign colorsel_cs = (bus_a == IO_BASE_ADDR + 20'h9) & ~bus_aen;     
+    assign crtc_cs = (bus_a[14:3] == IO_BASE_ADDR[14:3]) & ~bus_aen & cga_hw; // 3D4/3D5
+    assign status_cs = (bus_a == IO_BASE_ADDR + 20'hA) & ~bus_aen & cga_hw;
+    assign tandy_newcolorsel_cs = (bus_a == IO_BASE_ADDR + 20'hE) & ~bus_aen & cga_hw;
+    assign control_cs = (bus_a == IO_BASE_ADDR + 16'h8) & ~bus_aen & cga_hw;
+    assign colorsel_cs = (bus_a == IO_BASE_ADDR + 20'h9) & ~bus_aen & cga_hw;
     // Memory-mapped from B0000 to B7FFF
     //assign bus_mem_cs = (bus_a[19:15] == FRAMEBUFFER_ADDR[19:15]);
     //assign bus_mem_cs = 1'b1;
@@ -266,31 +267,37 @@ module cga(
             end
 
         end
-    end
+    end 
+	 
+	
+    UM6845R crtc (
+        .CLOCK(clk),
+		  .CLKEN(crtc_clk), 
+		  // .nCLKEN(),
+		  .nRESET(1'b1),
+		  .CRTC_TYPE(1'b1),
+		  
+		  .ENABLE(1'b1),
+		  .nCS(~crtc_cs),
+		  .R_nW(bus_iow_synced_l),
+		  .RS(bus_a[0]),
+		  .DI(bus_d),
+		  .DO(bus_out_crtc),
+		  
+		  .hblank(hblank),
+		  .vblank(vblank),
+		  .line_reset(line_reset),
+		  
+		  .VSYNC(vsync_l),
+		  .HSYNC(hsync_int),
+		  .DE(display_enable),
+		  // .FIELD(),
+		  .CURSOR(cursor),
+		  
+		  .MA(crtc_addr),
+		  .RA(row_addr)
 
-    // CRT controller (MC6845 compatible)
-    crtc6845 crtc (
-        .clk(clk),
-        .divclk(crtc_clk),
-        .cs(crtc_cs),
-        .a0(bus_a[0]),
-        .write(~bus_iow_synced_l),
-        .read(~bus_ior_synced_l),
-        .bus(bus_d),
-        .bus_out(bus_out_crtc),
-        .lock(1'b0),
-        .std_hsyncwidth(std_hsyncwidth),
-        .hsync(hsync_int),
-        .vsync(vsync_l),
-        .hblank(hblank),
-        .vblank(vblank),
-        .vblank_border(vblank_border),
-        .display_enable(display_enable),
-        .cursor(cursor),
-        .mem_addr(crtc_addr),
-        .row_addr(row_addr),
-        .line_reset(line_reset)
-    );
+	 );
 
     // CGA 80 column timings
     defparam crtc.H_TOTAL = 8'd113; // 113 // 56
